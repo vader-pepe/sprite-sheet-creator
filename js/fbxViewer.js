@@ -38,6 +38,11 @@ document.addEventListener('DOMContentLoaded', async function() {
     let cameraOffsetX = 0;
     let cameraOffsetY = 0;
     const cameraAdjustStep = 0.25; // How much to move the camera per adjustment
+
+    // Character and camera facing/tilt variables
+    let characterYRotation = Math.PI / 2; // Character facing direction (default: profile)
+    let cameraBeta = Math.PI / 3;         // Camera elevation angle (tilt)
+    let cameraAlpha = Math.PI / 2;        // Camera horizontal orbit angle
     
     /**
      * Updates orthographic camera settings based on zoom factor
@@ -83,6 +88,29 @@ document.addEventListener('DOMContentLoaded', async function() {
         cameraOffsetY = 0;
         updateOrthoCamera();
         showStatus("Camera position reset");
+    }
+
+    function applyCharacterRotation() {
+        const target = character || window.currentCharacter;
+        if (target) {
+            target.rotation.y = characterYRotation;
+        }
+    }
+
+    function applyCameraView() {
+        if (camera) {
+            camera.alpha = cameraAlpha;
+            camera.beta = cameraBeta;
+        }
+    }
+
+    function resetCharacterView() {
+        characterYRotation = Math.PI / 2;
+        cameraBeta = Math.PI / 3;
+        cameraAlpha = Math.PI / 2;
+        applyCharacterRotation();
+        applyCameraView();
+        showStatus("Character view reset");
     }
     
     // Create the scene
@@ -193,9 +221,10 @@ document.addEventListener('DOMContentLoaded', async function() {
 
         // Clear previous character completely
         if (window.currentCharacter) {
-            // Stop and dispose all animations
+            // Stop, reset and dispose all animations
             scene.animationGroups.slice().forEach(group => {
                 group.stop();
+                group.reset();
                 group.dispose();
             });
             
@@ -222,7 +251,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         
         // Position the new character
         window.currentCharacter.position = new BABYLON.Vector3(0, 0, 0);
-        window.currentCharacter.rotation = new BABYLON.Vector3(0, Math.PI/2, 0);
+        window.currentCharacter.rotation = new BABYLON.Vector3(0, characterYRotation, 0);
         window.currentCharacter.scaling = new BABYLON.Vector3(1, 1, 1);
 
         // Update animation list
@@ -423,7 +452,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         populateAnimationList();
         
         // For a side view, adjust the orientation of the fallback character
-        body.rotation.y = Math.PI/2; // Rotate to face the side camera
+        body.rotation.y = characterYRotation; // Rotate to face the camera
     }
     
     // Process loaded character model
@@ -434,9 +463,8 @@ document.addEventListener('DOMContentLoaded', async function() {
         // Center the character
         character.position = new BABYLON.Vector3(0, 0, 0);
         
-        // Adjust character rotation to face correctly for side view
-        // Rotate 90 degrees so character faces the camera from the side
-        character.rotation = new BABYLON.Vector3(0, Math.PI/2, 0);
+        // Adjust character rotation to face correctly based on current facing setting
+        character.rotation = new BABYLON.Vector3(0, characterYRotation, 0);
         
         // Store animation groups both locally and globally
         animationGroups = result.animationGroups;
@@ -513,9 +541,12 @@ document.addEventListener('DOMContentLoaded', async function() {
     
     // Play selected animation
     function playAnimation(index) {
-        // Stop all animations first
+        // Stop and reset all animations first to prevent frame carry-over
         if (scene) {
-            scene.animationGroups.forEach(group => group.stop());
+            scene.animationGroups.forEach(group => {
+                group.stop();
+                group.reset();
+            });
         }
         
         // Play selected animation
@@ -872,7 +903,13 @@ document.addEventListener('DOMContentLoaded', async function() {
             optimized: shouldOptimize,
             date: new Date().toISOString(),
             transparent: true,
-            cameraPosition: {
+            view: {
+                characterYRotation: characterYRotation,
+                characterFacingDeg: Math.round(characterYRotation * 180 / Math.PI),
+                cameraBeta: cameraBeta,
+                cameraTiltDeg: Math.round(cameraBeta * 180 / Math.PI),
+                cameraAlpha: cameraAlpha,
+                cameraOrbitDeg: Math.round(cameraAlpha * 180 / Math.PI),
                 offsetX: cameraOffsetX,
                 offsetY: cameraOffsetY
             }
@@ -1054,6 +1091,123 @@ document.addEventListener('DOMContentLoaded', async function() {
         keyboardHelp.textContent = 'Use arrow keys to adjust camera position';
         cameraControlPanel.appendChild(keyboardHelp);
         
+        // --- View Controls: facing, tilt, orbit ---
+        const viewSeparator = document.createElement('hr');
+        viewSeparator.style.width = '100%';
+        viewSeparator.style.border = 'none';
+        viewSeparator.style.borderTop = '1px solid #555';
+        viewSeparator.style.margin = '8px 0';
+        cameraControlPanel.appendChild(viewSeparator);
+        
+        const viewTitle = document.createElement('div');
+        viewTitle.textContent = 'View Controls';
+        viewTitle.style.fontWeight = 'bold';
+        viewTitle.style.fontSize = '12px';
+        viewTitle.style.marginBottom = '6px';
+        cameraControlPanel.appendChild(viewTitle);
+        
+        const sliderRefs = [];
+        function createSliderControl(labelText, min, max, step, initialValue, onChange) {
+            const container = document.createElement('div');
+            container.style.width = '100%';
+            container.style.marginBottom = '6px';
+            
+            const labelRow = document.createElement('div');
+            labelRow.style.display = 'flex';
+            labelRow.style.justifyContent = 'space-between';
+            labelRow.style.fontSize = '11px';
+            
+            const nameLabel = document.createElement('span');
+            nameLabel.textContent = labelText;
+            
+            const valueLabel = document.createElement('span');
+            valueLabel.textContent = Math.round(initialValue * 180 / Math.PI) + '°';
+            valueLabel.style.color = '#ffcc00';
+            
+            labelRow.appendChild(nameLabel);
+            labelRow.appendChild(valueLabel);
+            container.appendChild(labelRow);
+            
+            const slider = document.createElement('input');
+            slider.type = 'range';
+            slider.min = min;
+            slider.max = max;
+            slider.step = step;
+            slider.value = initialValue;
+            slider.style.width = '100%';
+            slider.style.margin = '2px 0';
+            slider.style.backgroundColor = 'transparent';
+            
+            slider.oninput = function() {
+                const val = parseFloat(this.value);
+                valueLabel.textContent = Math.round(val * 180 / Math.PI) + '°';
+                onChange(val);
+            };
+            
+            container.appendChild(slider);
+            sliderRefs.push({ slider, valueLabel, initialValue });
+            return container;
+        }
+        
+        // Character facing slider (Y rotation: 0 to 2*PI)
+        createSliderControl(
+            'Facing', 0, Math.PI * 2, Math.PI / 36, characterYRotation,
+            function(val) {
+                characterYRotation = val;
+                applyCharacterRotation();
+                showStatus(`Character facing: ${Math.round(val * 180 / Math.PI)}°`);
+            }
+        );
+        cameraControlPanel.appendChild(sliderRefs[sliderRefs.length - 1].slider.parentElement);
+        
+        // Camera tilt slider (beta)
+        createSliderControl(
+            'Tilt', 0.05, Math.PI - 0.05, Math.PI / 36, cameraBeta,
+            function(val) {
+                cameraBeta = val;
+                applyCameraView();
+                showStatus(`Camera tilt: ${Math.round(val * 180 / Math.PI)}°`);
+            }
+        );
+        cameraControlPanel.appendChild(sliderRefs[sliderRefs.length - 1].slider.parentElement);
+        
+        // Camera orbit slider (alpha: 0 to 2*PI)
+        createSliderControl(
+            'Orbit', 0, Math.PI * 2, Math.PI / 36, cameraAlpha,
+            function(val) {
+                cameraAlpha = val;
+                applyCameraView();
+                showStatus(`Camera orbit: ${Math.round(val * 180 / Math.PI)}°`);
+            }
+        );
+        cameraControlPanel.appendChild(sliderRefs[sliderRefs.length - 1].slider.parentElement);
+        
+        // Reset view button
+        const resetViewBtn = document.createElement('button');
+        resetViewBtn.textContent = 'Reset View';
+        resetViewBtn.style.width = '100%';
+        resetViewBtn.style.marginTop = '4px';
+        resetViewBtn.style.padding = '4px 8px';
+        resetViewBtn.style.backgroundColor = '#555';
+        resetViewBtn.style.color = 'white';
+        resetViewBtn.style.border = 'none';
+        resetViewBtn.style.borderRadius = '3px';
+        resetViewBtn.style.cursor = 'pointer';
+        resetViewBtn.style.fontSize = '11px';
+        resetViewBtn.onclick = function() {
+            characterYRotation = Math.PI / 2;
+            cameraBeta = Math.PI / 3;
+            cameraAlpha = Math.PI / 2;
+            applyCharacterRotation();
+            applyCameraView();
+            sliderRefs.forEach(ref => {
+                ref.slider.value = ref.initialValue;
+                ref.valueLabel.textContent = Math.round(ref.initialValue * 180 / Math.PI) + '°';
+            });
+            showStatus("Character view reset to default");
+        };
+        cameraControlPanel.appendChild(resetViewBtn);
+        
         // Add to document
         document.body.appendChild(cameraControlPanel);
         
@@ -1074,6 +1228,9 @@ document.addEventListener('DOMContentLoaded', async function() {
                     break;
                 case 'Home':
                     resetCameraPosition();
+                    break;
+                case 'End':
+                    resetCharacterView();
                     break;
             }
         });
